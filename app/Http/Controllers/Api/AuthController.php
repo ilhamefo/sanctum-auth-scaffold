@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Resources\UserResource;
 use App\Models\User;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\Request;
@@ -15,6 +14,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 class AuthController extends Controller
 {
+
     public function register(Request $request)
     {
         $validator = Validator::make($request->only(['email', 'password', 'password_confirmation', 'name']), [
@@ -39,7 +39,7 @@ class AuthController extends Controller
             $response = [
                 'status' => true,
                 'messages' => 'User created',
-                'user' => $user // new UserResource($user)
+                'user' => $user
             ];
 
             return response()->json($response, Response::HTTP_CREATED);
@@ -51,10 +51,14 @@ class AuthController extends Controller
             return response()->json($response, Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
-    public function logout()
+    public function logout(Request $request)
     {
         try {
             Auth::logout();
+
+            $request->session()->invalidate();
+
+            $request->session()->regenerateToken();
 
             $response = [
                 'success' => true,
@@ -73,6 +77,7 @@ class AuthController extends Controller
 
     public function login(Request $request)
     {
+
         $validator = Validator::make($request->only(['email', 'password']), [
             'email' => ['required', 'email'],
             'password' => ['required', 'string'],
@@ -82,25 +87,34 @@ class AuthController extends Controller
             return response()->json($validator->errors(), Response::HTTP_BAD_REQUEST);
         }
 
+        $user = User::where('email', $request->email)->first();
+
+        if (!$user || !Hash::check($request->password, $user->password)) {
+            return response([
+                'success'   => false,
+                'message' => ['These credentials does not match our records.']
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $response = $this->authenticate($request);
+
+        return response()->json($response, Response::HTTP_CREATED);
+    }
+
+    private function authenticate($request)
+    {
         try {
-            $user = User::where('email', $request->email)->first();
+            Auth::attempt([
+                'email' => $request->email,
+                'password' => $request->password,
+            ]);
 
-            if (!$user || !Hash::check($request->password, $user->password)) {
-                return response([
-                    'success'   => false,
-                    'message' => ['These credentials does not match our records.']
-                ], Response::HTTP_UNPROCESSABLE_ENTITY);
-            }
+            $request->session()->regenerate();
 
-            $token = $user->createToken('ApiToken')->plainTextToken;
-
-            $response = [
+            return [
                 'success'   => true,
-                'user'      => $user,
-                'token'     => $token
+                'message'      => 'Logged in',
             ];
-
-            return response()->json($response, Response::HTTP_CREATED);
         } catch (\Throwable $th) {
             $response = [
                 'success' => false,
